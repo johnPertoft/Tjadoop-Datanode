@@ -3,9 +3,9 @@ package tjadoop;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
-import java.net.InetAddress;
-import java.net.ServerSocket;
-import java.net.Socket;
+import java.net.*;
+import java.util.Collections;
+import java.util.Enumeration;
 
 public class Main {
 
@@ -55,7 +55,7 @@ public class Main {
         DataInputStream dis = new DataInputStream(socket.getInputStream());
         DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
 
-        byte[] iaddr = InetAddress.getLocalHost().getAddress();
+        byte[] iaddr = getIP();
 
         new Datanode(dis, dos, serverSocket, iaddr).run();
 
@@ -66,5 +66,23 @@ public class Main {
         System.exit(1);
       }
     }
+  }
+
+  private static byte[] getIP() throws SocketException {
+    Enumeration<NetworkInterface> nets = NetworkInterface.getNetworkInterfaces();
+    for (NetworkInterface netint : Collections.list(nets)) {
+      if (netint.getDisplayName().startsWith("eth") || netint.getDisplayName().startsWith("wlan")) {
+        // TODO: how to choose the "right" one?
+
+        /*
+        for (InetAddress ia : Collections.list(netint.getInetAddresses())) {
+
+        }
+        */
+        return Collections.list(netint.getInetAddresses()).get(0).getAddress();
+      }
+    }
+
+    return null;
   }
 }

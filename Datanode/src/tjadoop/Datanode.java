@@ -10,7 +10,6 @@ import java.util.Map;
 public class Datanode {
 
   public static final int PORT = 1234;
-
   public final byte[] IADDRESS;
 
   private DataInputStream namenodeInput;

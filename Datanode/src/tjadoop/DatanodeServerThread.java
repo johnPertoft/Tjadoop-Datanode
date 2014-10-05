@@ -1,6 +1,7 @@
 package tjadoop;
 
 import java.io.*;
+import java.net.InetAddress;
 import java.net.Socket;
 import java.util.HashMap;
 import java.util.LinkedList;
@@ -36,7 +37,7 @@ public class DatanodeServerThread implements Runnable {
           break;
 
         case DatanodeProtocol.READ:
-
+          readRequest();
           break;
 
         case DatanodeProtocol.ACK:
@@ -48,22 +49,8 @@ public class DatanodeServerThread implements Runnable {
           break;
       }
     } catch (IOException e) {
-      // TODO: signal to Datanode that this was a malformed request
+      // TODO: signal to Datanode that this was a malformed request or whatever happened
       return;
-    }
-
-
-    boolean receiving = true;
-    try {
-      while (receiving) {
-        byte b = dis.readByte();
-        System.out.println(b);
-      }
-    } catch (EOFException e) {
-
-    } catch (IOException e) {
-      // TODO: also signal that an error occurred
-
     }
   }
 
@@ -79,25 +66,62 @@ public class DatanodeServerThread implements Runnable {
     }
   }
 
+  // TODO: this could need some refactoring maybe
   private void createRequest() throws IOException {
     short numNodes = dis.readShort();
 
     List<NodeEntry> nodeEntries = new LinkedList<NodeEntry>();
 
+    // the byte start and end for this datanode
+    long byteStart = 0;
+    long byteEnd = 0;
+
     for (int i = 0; i < numNodes; i++) {
       byte[] iaddr = new byte[16];
       dis.read(iaddr);
-      long byteStart = dis.readLong();
-      long byteEnd = dis.readLong();
+      long bs = dis.readLong();
+      long be = dis.readLong();
 
-      nodeEntries.add(new NodeEntry(iaddr, byteStart, byteEnd));
+      if (isThisNodesIP(iaddr)) {
+        byteStart = bs;
+        byteEnd = be;
+
+      } else {
+        nodeEntries.add(new NodeEntry(iaddr, bs, be));
+      }
+    }
+
+    byte[] iaddr = nodeEntries.get(0).iaddr;
+    Socket nextNodeSocket = new Socket(InetAddress.getByAddress(iaddr), Datanode.PORT);
+    DataInputStream nextNodeDis = new DataInputStream(new BufferedInputStream(socket.getInputStream()));
+    DataOutputStream nextNodeDos = new DataOutputStream(new BufferedOutputStream(socket.getOutputStream()));
+
+    // write to next node
+    nextNodeDos.writeByte(DatanodeProtocol.CREATE);
+    nextNodeDos.writeShort(nodeEntries.size());
+    for (NodeEntry ne : nodeEntries) {
+      nextNodeDos.write(ne.iaddr, 0, ne.iaddr.length);
+      nextNodeDos.writeLong(ne.byteStart);
+      nextNodeDos.writeLong(ne.byteEnd);
     }
 
     long dataLength = dis.readLong();
-    long bytesRead = 0;
+    nextNodeDos.writeLong(dataLength);
+    long totalBytesRead = 0;
+    byte[] byteBlock = new byte[65536];
+    boolean savedLocalData = false;
 
-    while (bytesRead < dataLength) { // TODO: check for EOF too
+    while (totalBytesRead < dataLength) { // TODO: check for EOF too
+      int bytesRead = dis.read(byteBlock);
+      totalBytesRead += bytesRead;
 
+      // TODO: check if this data is in this nodes byteinterval
+      // if so, save it locally before passing it on
+
+      if (byteStart < totalBytesRead) {
+
+        // localStorage.save(byteBlock, offset, asdadsda
+      }
     }
   }
 
@@ -111,5 +135,19 @@ public class DatanodeServerThread implements Runnable {
 
   private void acknowledge() throws IOException {
     // TODO
+  }
+
+  private boolean isThisNodesIP(byte[] iaddr) {
+    if (iaddr.length != datanode.IADDRESS.length) {
+      return false;
+    }
+
+    for (int i = 0; i < iaddr.length; i++) {
+      if (iaddr[i] != datanode.IADDRESS[i]) {
+        return false;
+      }
+    }
+
+    return true;
   }
 }
