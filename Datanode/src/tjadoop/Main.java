@@ -56,6 +56,10 @@ public class Main {
         DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
 
         byte[] iaddr = getIP();
+        if (iaddr == null) {
+          System.err.println("Failed to get ip address of this host.");
+          System.exit(1);
+        }
 
         new Datanode(dis, dos, serverSocket, iaddr).run();
 
@@ -73,6 +77,7 @@ public class Main {
     for (NetworkInterface netint : Collections.list(nets)) {
       if (netint.getDisplayName().startsWith("eth") || netint.getDisplayName().startsWith("wlan")) {
         // TODO: how to choose the "right" one?
+        // TODO: prefer ipv4?
 
         /*
         for (InetAddress ia : Collections.list(netint.getInetAddresses())) {

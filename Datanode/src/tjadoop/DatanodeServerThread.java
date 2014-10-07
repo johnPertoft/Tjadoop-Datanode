@@ -30,10 +30,11 @@ public class DatanodeServerThread implements Runnable {
 
     try {
       byte requestType = dis.readByte();
+      int fileHash = dis.readInt();
 
       switch (requestType) {
         case DatanodeProtocol.CREATE:
-          createRequest();
+          createRequest(fileHash);
           break;
 
         case DatanodeProtocol.READ:
@@ -67,7 +68,7 @@ public class DatanodeServerThread implements Runnable {
   }
 
   // TODO: this could need some refactoring maybe
-  private void createRequest() throws IOException {
+  private void createRequest(int fileHash) throws IOException {
     short numNodes = dis.readShort();
 
     List<NodeEntry> nodeEntries = new LinkedList<NodeEntry>();
@@ -111,17 +112,46 @@ public class DatanodeServerThread implements Runnable {
     byte[] byteBlock = new byte[65536];
     boolean savedLocalData = false;
 
+    if (byteStart > byteEnd) {
+      // TODO: throw some exception?
+    }
+
+    String filename = "TODO";
+
     while (totalBytesRead < dataLength) { // TODO: check for EOF too
       int bytesRead = dis.read(byteBlock);
       totalBytesRead += bytesRead;
 
-      // TODO: check if this data is in this nodes byteinterval
-      // if so, save it locally before passing it on
+      long currByteEnd = totalBytesRead;
+      long currByteStart = totalBytesRead - bytesRead + 1;
 
-      if (byteStart < totalBytesRead) {
+      // if byteStart starts in this block
+      if (byteStart >= currByteStart && byteStart <= currByteEnd) {
+        int blockStart =  (int) (byteStart - currByteStart);
 
-        // localStorage.save(byteBlock, offset, asdadsda
+        if (byteEnd > currByteEnd) {
+          int len = byteBlock.length - blockStart;
+          LocalStorage.save(filename, byteBlock, blockStart, len);
+
+        } else {
+          int len = (int) (currByteEnd - currByteStart);
+          LocalStorage.save(filename, byteBlock, blockStart, len);
+        }
       }
+
+      // if byteEnd is in this block, should always come after the previous if
+      if (byteEnd >= currByteStart && byteStart <= currByteEnd) {
+        int len = (int) (byteEnd - currByteStart);
+        LocalStorage.save(filename, byteBlock, 0, len);
+      }
+
+      // if this whole block is within bytestart and byteend
+      if (byteStart < currByteStart && byteEnd > currByteEnd) {
+        LocalStorage.save(filename, byteBlock, 0, byteBlock.length);
+      }
+
+      // always pass it on to the next datanode
+      nextNodeDos.write(byteBlock);
     }
   }
 

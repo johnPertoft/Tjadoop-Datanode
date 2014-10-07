@@ -1,12 +1,15 @@
 package tjadoop;
 
+import java.io.*;
+
 public class LocalStorage {
 
-  public LocalStorage() {
-
-  }
-
-  public void save(byte[] bytes, int offs, int len) {
+  public static synchronized void save(String filename, byte[] bytes, int offset, int len) throws IOException {
     // save len bytes from offset or until end of array
+
+    File file = new File(filename);
+    boolean append = true;
+    FileOutputStream fout = new FileOutputStream(file, append);
+    fout.write(bytes, offset, len);
   }
 }
