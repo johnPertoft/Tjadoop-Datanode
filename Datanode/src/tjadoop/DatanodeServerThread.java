@@ -116,7 +116,7 @@ public class DatanodeServerThread implements Runnable {
       // TODO: throw some exception?
     }
 
-    String filename = "TODO";
+    String filename = fileHash + "-" + byteStart + "-" + byteEnd;
 
     while (totalBytesRead < dataLength) { // TODO: check for EOF too
       int bytesRead = dis.read(byteBlock);
@@ -153,6 +153,8 @@ public class DatanodeServerThread implements Runnable {
       // always pass it on to the next datanode
       nextNodeDos.write(byteBlock);
     }
+
+    // TODO: wait for the ACK and determine who to ACK to next
   }
 
   private void readRequest() throws IOException {

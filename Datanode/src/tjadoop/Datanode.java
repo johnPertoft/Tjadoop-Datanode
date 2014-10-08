@@ -51,7 +51,7 @@ public class Datanode {
   private void setup() throws IOException {
     // TODO:
     // first write to server that this datanode is now online
-    // get some info in response, like an id and addresses to the other datanodes
+    // get some info in response?
 
     namenodeOutput.writeBytes("sup?");
   }
