@@ -92,22 +92,36 @@ public class DatanodeServerThread implements Runnable {
       }
     }
 
-    byte[] iaddr = nodeEntries.get(0).iaddr;
-    Socket nextNodeSocket = new Socket(InetAddress.getByAddress(iaddr), Datanode.PORT);
-    DataInputStream nextNodeDis = new DataInputStream(new BufferedInputStream(socket.getInputStream()));
-    DataOutputStream nextNodeDos = new DataOutputStream(new BufferedOutputStream(socket.getOutputStream()));
+    boolean isLastNode = nodeEntries.isEmpty();
+
+    Socket nextNodeSocket = null;
+    DataInputStream nextNodeDis = null;
+    DataOutputStream nextNodeDos = null;
+
+    if (!isLastNode) {
+      byte[] iaddr = nodeEntries.get(0).iaddr;
+      nextNodeSocket = new Socket(InetAddress.getByAddress(iaddr), Datanode.PORT);
+      nextNodeDis = new DataInputStream(new BufferedInputStream(socket.getInputStream()));
+      nextNodeDos = new DataOutputStream(new BufferedOutputStream(socket.getOutputStream()));
+    }
 
     // write to next node
-    nextNodeDos.writeByte(DatanodeProtocol.CREATE);
-    nextNodeDos.writeShort(nodeEntries.size());
-    for (NodeEntry ne : nodeEntries) {
-      nextNodeDos.write(ne.iaddr, 0, ne.iaddr.length);
-      nextNodeDos.writeLong(ne.byteStart);
-      nextNodeDos.writeLong(ne.byteEnd);
+    if (!isLastNode) {
+      nextNodeDos.writeByte(DatanodeProtocol.CREATE);
+      nextNodeDos.writeShort(nodeEntries.size());
+      for (NodeEntry ne : nodeEntries) {
+        nextNodeDos.write(ne.iaddr, 0, ne.iaddr.length);
+        nextNodeDos.writeLong(ne.byteStart);
+        nextNodeDos.writeLong(ne.byteEnd);
+      }
     }
 
     long dataLength = dis.readLong();
-    nextNodeDos.writeLong(dataLength);
+
+    if (!isLastNode) {
+      nextNodeDos.writeLong(dataLength);
+    }
+
     long totalBytesRead = 0;
     byte[] byteBlock = new byte[65536];
     boolean savedLocalData = false;
@@ -151,10 +165,24 @@ public class DatanodeServerThread implements Runnable {
       }
 
       // always pass it on to the next datanode
-      nextNodeDos.write(byteBlock);
+      if (!isLastNode) {
+        nextNodeDos.write(byteBlock);
+      }
     }
 
-    // TODO: wait for the ACK and determine who to ACK to next
+    if (isLastNode) {
+      dos.writeByte(DatanodeProtocol.ACK);
+      // TODO: does anything else have to be sent?
+
+    } else {
+      // wait for ACK here
+      byte ack = nextNodeDis.readByte();
+      // TODO: read more stuff if we add that to protocol
+
+      // TODO: should an ack be sent to the client?
+      // TODO: if this was the first datanode in the chain we should also send an ack to namenode
+      dos.writeByte(DatanodeProtocol.ACK);
+    }
   }
 
   private void readRequest() throws IOException {
