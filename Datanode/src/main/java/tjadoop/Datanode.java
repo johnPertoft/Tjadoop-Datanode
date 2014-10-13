@@ -1,11 +1,13 @@
 package tjadoop;
 
+import org.json.JSONException;
+import org.json.JSONObject;
+
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.ServerSocket;
-import java.util.Map;
 
 public class Datanode {
 
@@ -15,7 +17,6 @@ public class Datanode {
   private DataInputStream namenodeInput;
   private DataOutputStream namenodeOutput;
 
-  // TODO: using this from the DatanodeServerThread needs to be synchronized
   private ServerSocket datanodeServerSocket;
 
   public Datanode(DataInputStream dis, DataOutputStream dos, ServerSocket datanodeServerSocket, byte[] iaddr) {
@@ -25,6 +26,10 @@ public class Datanode {
     this.datanodeServerSocket = datanodeServerSocket;
 
     IADDRESS = iaddr;
+  }
+
+  public synchronized void sendToNamenode(String json) throws IOException {
+    namenodeOutput.writeBytes(json);
   }
 
   public void run() {
@@ -40,6 +45,7 @@ public class Datanode {
     while (running) {
       try {
         DatanodeServerThread dst = new DatanodeServerThread(this, datanodeServerSocket.accept());
+        System.out.println("Client connected!");
         new Thread(dst).start();
 
       } catch (IOException e) {
@@ -49,10 +55,16 @@ public class Datanode {
   }
 
   private void setup() throws IOException {
-    // TODO:
-    // first write to server that this datanode is now online
-    // get some info in response?
+    JSONObject json = new JSONObject();
+    try {
+      json.append("cmd", "init");
+      json.append("ip", InetAddress.getByAddress(IADDRESS).toString());
+      namenodeOutput.writeBytes(json.toString());
 
-    namenodeOutput.writeBytes("sup?");
+    } catch (JSONException e) {
+    }
+
+    StringBuilder sb = new StringBuilder();
+    // TODO: read the response
   }
 }

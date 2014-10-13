@@ -36,7 +36,7 @@ public class Main {
       nnSocketEstablished = true;
 
     } catch (IOException e) {
-      System.err.println("Failed to setup socket to namennode");
+      System.err.println("Failed to setup socket to namenode");
       System.exit(1);
     }
 
@@ -73,7 +73,7 @@ public class Main {
     }
   }
 
-  private static byte[] getIP() throws SocketException {
+  public static byte[] getIP() throws SocketException {
     Enumeration<NetworkInterface> nets = NetworkInterface.getNetworkInterfaces();
     for (NetworkInterface netint : Collections.list(nets)) {
       if (netint.getDisplayName().startsWith("eth") || netint.getDisplayName().startsWith("wlan")) {

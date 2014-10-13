@@ -1,8 +1,12 @@
 package tjadoop;
 
+import org.json.JSONException;
+import org.json.JSONObject;
+
 import java.io.*;
 import java.net.InetAddress;
 import java.net.Socket;
+import java.nio.charset.MalformedInputException;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
@@ -26,19 +30,25 @@ public class DatanodeServerThread implements Runnable {
   @Override
   public void run() {
 
+    System.out.println("running datanode server thread");
     // implements the protocol defined in TODO
 
     try {
       byte requestType = dis.readByte();
-      int fileHash = dis.readInt();
+      int sequenceNumber;
+      int fileHash;
 
       switch (requestType) {
         case DatanodeProtocol.CREATE:
-          createRequest(fileHash);
+          sequenceNumber = dis.readInt();
+          fileHash = dis.readInt();
+          createRequest(sequenceNumber, fileHash);
           break;
 
         case DatanodeProtocol.READ:
-          readRequest();
+          sequenceNumber = dis.readInt();
+          fileHash = dis.readInt();
+          readRequest(sequenceNumber, fileHash);
           break;
 
         case DatanodeProtocol.ACK:
@@ -46,11 +56,15 @@ public class DatanodeServerThread implements Runnable {
           break;
 
         case DatanodeProtocol.DELETE:
-
+          sequenceNumber = dis.readInt();
+          fileHash = dis.readInt();
           break;
       }
     } catch (IOException e) {
       // TODO: signal to Datanode that this was a malformed request or whatever happened
+      return;
+    } catch (JSONException e) {
+      // json exception?
       return;
     }
   }
@@ -68,8 +82,8 @@ public class DatanodeServerThread implements Runnable {
   }
 
   // TODO: this could need some refactoring maybe
-  private void createRequest(int fileHash) throws IOException {
-    short numNodes = dis.readShort();
+  private void createRequest(int sequenceNumber, int fileHash) throws IOException, JSONException {
+    int numNodes = dis.readInt();
 
     List<NodeEntry> nodeEntries = new LinkedList<NodeEntry>();
 
@@ -77,13 +91,14 @@ public class DatanodeServerThread implements Runnable {
     long byteStart = 0;
     long byteEnd = 0;
 
+    // read header
     for (int i = 0; i < numNodes; i++) {
       byte[] iaddr = new byte[16];
       dis.read(iaddr);
       long bs = dis.readLong();
       long be = dis.readLong();
 
-      if (isThisNodesIP(iaddr)) {
+      if (isOwnIP(iaddr)) {
         byteStart = bs;
         byteEnd = be;
 
@@ -91,6 +106,8 @@ public class DatanodeServerThread implements Runnable {
         nodeEntries.add(new NodeEntry(iaddr, bs, be));
       }
     }
+
+    long dataLength = dis.readLong();
 
     boolean isLastNode = nodeEntries.isEmpty();
 
@@ -103,34 +120,31 @@ public class DatanodeServerThread implements Runnable {
       nextNodeSocket = new Socket(InetAddress.getByAddress(iaddr), Datanode.PORT);
       nextNodeDis = new DataInputStream(new BufferedInputStream(socket.getInputStream()));
       nextNodeDos = new DataOutputStream(new BufferedOutputStream(socket.getOutputStream()));
-    }
 
-    // write to next node
-    if (!isLastNode) {
+      // write header
       nextNodeDos.writeByte(DatanodeProtocol.CREATE);
+      nextNodeDos.writeInt(sequenceNumber + 1);
+      nextNodeDos.writeInt(fileHash);
       nextNodeDos.writeShort(nodeEntries.size());
       for (NodeEntry ne : nodeEntries) {
         nextNodeDos.write(ne.iaddr, 0, ne.iaddr.length);
         nextNodeDos.writeLong(ne.byteStart);
         nextNodeDos.writeLong(ne.byteEnd);
       }
+
+      nextNodeDos.writeLong(dataLength);
     }
 
-    long dataLength = dis.readLong();
-
-    if (!isLastNode) {
-      nextNodeDos.writeLong(dataLength);
+    if (byteStart > byteEnd) {
+      throw new IllegalArgumentException("Malformed request");
     }
 
     long totalBytesRead = 0;
     byte[] byteBlock = new byte[65536];
 
-    if (byteStart > byteEnd) {
-      // TODO: throw some exception?
-    }
-
     String filename = fileHash + "-" + byteStart + "-" + byteEnd;
 
+    // TODO: this whole block could use some refactoring
     while (totalBytesRead < dataLength) { // TODO: check for EOF too
       int bytesRead = dis.read(byteBlock);
       totalBytesRead += bytesRead;
@@ -140,7 +154,7 @@ public class DatanodeServerThread implements Runnable {
 
       // if byteStart starts in this block
       if (byteStart >= currByteStart && byteStart <= currByteEnd) {
-        int blockStart =  (int) (byteStart - currByteStart);
+        int blockStart = (int) (byteStart - currByteStart);
 
         if (byteEnd > currByteEnd) {
           int len = byteBlock.length - blockStart;
@@ -152,7 +166,7 @@ public class DatanodeServerThread implements Runnable {
         }
       }
 
-      // if byteEnd is in this block, should always come after the previous if
+      // if byteEnd is in this block, should always come after the previous if clause
       if (byteEnd >= currByteStart && byteStart <= currByteEnd) {
         int len = (int) (byteEnd - currByteStart);
         LocalStorage.save(filename, byteBlock, 0, len);
@@ -170,19 +184,27 @@ public class DatanodeServerThread implements Runnable {
     }
 
     if (isLastNode) {
+      // TODO: add boolean flag and set it to false if any errors occurs
+      // when saving all the stuff, and in that case send ERR instead of ACk
       dos.writeByte(DatanodeProtocol.ACK);
-      // TODO: does anything else have to be sent?
 
     } else {
       // wait for ACK here
-      byte ack = nextNodeDis.readByte();
-      // TODO: read more stuff if we add that to protocol
+      // TODO: later add timeout if it takes too long
+      // TODO: check if ack or error was returned
+      byte ackOrErr = nextNodeDis.readByte();
       nextNodeDis.close();
       nextNodeDos.close();
       nextNodeSocket.close();
 
-      // TODO: should an ack be sent to the client?
-      // TODO: if this was the first datanode in the chain we should also send an ack to namenode
+      if (sequenceNumber == 0) {
+        // TODO: write ack to namenode
+        JSONObject json = new JSONObject();
+        json.append("ack", fileHash);
+
+        datanode.sendToNamenode(json.toString());
+      }
+
       dos.writeByte(DatanodeProtocol.ACK);
     }
 
@@ -190,8 +212,8 @@ public class DatanodeServerThread implements Runnable {
     dos.close();
   }
 
-  private void readRequest() throws IOException {
-    // TODO
+  private void readRequest(int sequenceNumber, int fileHash) throws IOException {
+    int numNodes = dis.readInt();
   }
 
   private void deleteRequest() throws IOException {
@@ -199,10 +221,10 @@ public class DatanodeServerThread implements Runnable {
   }
 
   private void acknowledge() throws IOException {
-    // TODO
+    // TODO, pass the ack to parent node
   }
 
-  private boolean isThisNodesIP(byte[] iaddr) {
+  private boolean isOwnIP(byte[] iaddr) {
     if (iaddr.length != datanode.IADDRESS.length) {
       return false;
     }
