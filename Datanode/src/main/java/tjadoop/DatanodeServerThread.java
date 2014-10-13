@@ -6,6 +6,7 @@ import org.json.JSONObject;
 import java.io.*;
 import java.net.InetAddress;
 import java.net.Socket;
+import java.net.UnknownHostException;
 import java.nio.charset.MalformedInputException;
 import java.util.HashMap;
 import java.util.LinkedList;
@@ -118,8 +119,8 @@ public class DatanodeServerThread implements Runnable {
     if (!isLastNode) {
       byte[] iaddr = nodeEntries.get(0).iaddr;
       nextNodeSocket = new Socket(InetAddress.getByAddress(iaddr), Datanode.PORT);
-      nextNodeDis = new DataInputStream(new BufferedInputStream(socket.getInputStream()));
-      nextNodeDos = new DataOutputStream(new BufferedOutputStream(socket.getOutputStream()));
+      nextNodeDis = new DataInputStream(new BufferedInputStream(nextNodeSocket.getInputStream()));
+      nextNodeDos = new DataOutputStream(new BufferedOutputStream(nextNodeSocket.getOutputStream()));
 
       // write header
       nextNodeDos.writeByte(DatanodeProtocol.CREATE);
@@ -140,9 +141,9 @@ public class DatanodeServerThread implements Runnable {
     }
 
     long totalBytesRead = 0;
-    byte[] byteBlock = new byte[65536];
+    byte[] byteBlock = new byte[1024*1024*32];
 
-    String filename = fileHash + "-" + byteStart + "-" + byteEnd;
+    String filename = getFilename(fileHash, byteStart, byteEnd);
 
     // TODO: this whole block could use some refactoring
     while (totalBytesRead < dataLength) { // TODO: check for EOF too
@@ -197,10 +198,11 @@ public class DatanodeServerThread implements Runnable {
       nextNodeDos.close();
       nextNodeSocket.close();
 
+      // Only the first datanode in the chain ACKs to namenode
       if (sequenceNumber == 0) {
-        // TODO: write ack to namenode
         JSONObject json = new JSONObject();
-        json.append("ack", fileHash);
+        json.put("cmd", "ack-upload");
+        json.put("id", fileHash);
 
         datanode.sendToNamenode(json.toString());
       }
@@ -214,6 +216,61 @@ public class DatanodeServerThread implements Runnable {
 
   private void readRequest(int sequenceNumber, int fileHash) throws IOException {
     int numNodes = dis.readInt();
+
+    List<NodeEntry> nodeEntries = new LinkedList<NodeEntry>();
+
+    // the byte start and end for this datanode
+    long byteStart = 0;
+    long byteEnd = 0;
+
+    // read header
+    for (int i = 0; i < numNodes; i++) {
+      byte[] iaddr = new byte[16];
+      dis.read(iaddr);
+      long bs = dis.readLong();
+      long be = dis.readLong();
+
+      if (isOwnIP(iaddr)) {
+        byteStart = bs;
+        byteEnd = be;
+
+      } else {
+        nodeEntries.add(new NodeEntry(iaddr, bs, be));
+      }
+    }
+
+    // write the contents of this node's filepart as soon as we can
+    // to the parent node
+    String filename = getFilename(fileHash, byteStart, byteEnd);
+    LocalStorage.load(filename, dos);
+
+    boolean isLastNode = nodeEntries.isEmpty();
+
+    Socket nextNodeSocket = null;
+    DataInputStream nextNodeDis = null;
+    DataOutputStream nextNodeDos = null;
+
+    if (!isLastNode) {
+      byte[] iaddr = nodeEntries.get(0).iaddr;
+      nextNodeSocket = new Socket(InetAddress.getByAddress(iaddr), Datanode.PORT);
+      nextNodeDis = new DataInputStream(new BufferedInputStream(nextNodeSocket.getInputStream()));
+      nextNodeDos = new DataOutputStream(new BufferedOutputStream(nextNodeSocket.getOutputStream()));
+
+      // write header
+      nextNodeDos.writeByte(DatanodeProtocol.READ);
+      nextNodeDos.writeInt(sequenceNumber + 1);
+      nextNodeDos.writeInt(fileHash);
+      nextNodeDos.writeShort(nodeEntries.size());
+      for (NodeEntry ne : nodeEntries) {
+        nextNodeDos.write(ne.iaddr, 0, ne.iaddr.length);
+        nextNodeDos.writeLong(ne.byteStart);
+        nextNodeDos.writeLong(ne.byteEnd);
+      }
+    }
+
+    // Just pass the other dataparts through the chain
+    // TODO: while there is data left, pass it through
+
   }
 
   private void deleteRequest() throws IOException {
@@ -224,7 +281,24 @@ public class DatanodeServerThread implements Runnable {
     // TODO, pass the ack to parent node
   }
 
+  private String getFilename(int fileHash, long byteStart, long byteEnd) {
+    return "Filepart" + fileHash + "-" + byteStart + "-" + byteEnd;
+  }
+
   private boolean isOwnIP(byte[] iaddr) {
+    // temp
+    System.out.println("isOwnIP()");
+    try {
+      String ip = InetAddress.getByAddress(iaddr).toString();
+      if (ip.equals("/e:3133:302e:3232:392e:3134:352e:3934")) {
+        System.out.println("IP matched!");
+        return true;
+      }
+    } catch (UnknownHostException e) {
+      e.printStackTrace();
+    }
+    /////////
+
     if (iaddr.length != datanode.IADDRESS.length) {
       return false;
     }

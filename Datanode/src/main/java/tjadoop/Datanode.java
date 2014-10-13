@@ -11,7 +11,7 @@ import java.net.ServerSocket;
 
 public class Datanode {
 
-  public static final int PORT = 1234;
+  public static final int PORT = 15567;
   public final byte[] IADDRESS;
 
   private DataInputStream namenodeInput;
@@ -35,8 +35,13 @@ public class Datanode {
   public void run() {
     try {
       setup();
+
     } catch (IOException e) {
       System.err.println("Failed during setup with name node");
+      return;
+    } catch (JSONException e) {
+      System.err.println("Failed during setup with name node");
+      System.err.println("json error");
       return;
     }
 
@@ -54,17 +59,37 @@ public class Datanode {
     }
   }
 
-  private void setup() throws IOException {
+  private void setup() throws IOException, JSONException {
     JSONObject json = new JSONObject();
     try {
-      json.append("cmd", "init");
-      json.append("ip", InetAddress.getByAddress(IADDRESS).toString());
+      json.put("cmd", "init");
+      String iaddr = InetAddress.getByAddress(IADDRESS).toString();
+      iaddr = iaddr.charAt(0) == '/' ? iaddr.substring(1) : iaddr;
+      //json.put("ip", iaddr);
+      json.put("ip", "130.229.145.94");
       namenodeOutput.writeBytes(json.toString());
 
     } catch (JSONException e) {
     }
 
     StringBuilder sb = new StringBuilder();
-    // TODO: read the response
+    // read until num left brackets == right brackets
+    int lb = 0;
+    int rb = 0;
+    do {
+      byte c = namenodeInput.readByte();
+      sb.append((char) c);
+
+      if (c == '{') lb++;
+      if (c == '}') rb++;
+
+    } while (lb != rb);
+
+    JSONObject jsonResp = new JSONObject(sb.toString());
+    if (jsonResp.getBoolean("success")) {
+      System.out.println("Setup success");
+    } else {
+      System.out.println("Setup failed");
+    }
   }
 }

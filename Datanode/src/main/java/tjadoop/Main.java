@@ -43,9 +43,11 @@ public class Main {
     boolean serverSocketEstablished = false;
     try {
       serverSocket = new ServerSocket(Datanode.PORT);
+      //serverSocket = new ServerSocket(Datanode.PORT, 100, InetAddress.getByName("localhost"));
       serverSocketEstablished = true;
 
     } catch (IOException e) {
+      e.printStackTrace();
       System.err.println("Failed to setup datanodes server socket");
       System.exit(1);
     }
