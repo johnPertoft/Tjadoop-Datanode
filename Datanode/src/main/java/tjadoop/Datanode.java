@@ -11,7 +11,7 @@ import java.net.ServerSocket;
 
 public class Datanode {
 
-  public static final int PORT = 15567;
+  public static final int PORT = 15568;
   public final byte[] IADDRESS;
 
   private DataInputStream namenodeInput;
@@ -20,14 +20,14 @@ public class Datanode {
   private ServerSocket datanodeServerSocket;
 
   public Datanode(DataInputStream dis, DataOutputStream dos, ServerSocket datanodeServerSocket, byte[] iaddr) {
+    this.datanodeServerSocket = datanodeServerSocket;
     this.namenodeInput = dis;
     this.namenodeOutput = dos;
-
-    this.datanodeServerSocket = datanodeServerSocket;
 
     IADDRESS = iaddr;
   }
 
+  // TODO: move this to namenodeThread class?
   public synchronized void sendToNamenode(String json) throws IOException {
     namenodeOutput.writeBytes(json);
   }
@@ -35,6 +35,8 @@ public class Datanode {
   public void run() {
     try {
       setup();
+      NamenodeThread nnt = new NamenodeThread(namenodeInput, namenodeOutput);
+      new Thread(nnt).start();
 
     } catch (IOException e) {
       System.err.println("Failed during setup with name node");
@@ -62,16 +64,13 @@ public class Datanode {
   private void setup() throws IOException, JSONException {
     JSONObject json = new JSONObject();
     try {
-      json.put("cmd", "init");
-      String iaddr = InetAddress.getByAddress(IADDRESS).toString();
-      iaddr = iaddr.charAt(0) == '/' ? iaddr.substring(1) : iaddr;
-      //json.put("ip", iaddr);
-      json.put("ip", "130.229.145.94");
+      json = NamenodeProtocol.INIT("130.229.145.94");
       namenodeOutput.writeBytes(json.toString());
 
     } catch (JSONException e) {
     }
 
+    /*
     StringBuilder sb = new StringBuilder();
     // read until num left brackets == right brackets
     int lb = 0;
@@ -86,6 +85,9 @@ public class Datanode {
     } while (lb != rb);
 
     JSONObject jsonResp = new JSONObject(sb.toString());
+    */
+    JSONObject jsonResp = JSONUtil.parseJSONStream(namenodeInput);
+
     if (jsonResp.getBoolean("success")) {
       System.out.println("Setup success");
     } else {

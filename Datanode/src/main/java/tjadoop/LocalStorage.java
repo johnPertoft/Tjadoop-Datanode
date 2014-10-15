@@ -5,7 +5,6 @@ import java.io.*;
 public class LocalStorage {
 
   public static synchronized void save(String filename, byte[] bytes, int offset, int len) throws IOException {
-    System.out.println("Saving some stuff");
     File file = new File(filename);
     boolean append = true;
     FileOutputStream fout = new FileOutputStream(file, append);
@@ -15,8 +14,7 @@ public class LocalStorage {
   }
 
   public static synchronized void load(String filename, DataOutputStream dos) throws IOException {
-    System.out.println("Loading some stuff");
-
+    System.out.println("loading some stuff");
     // TODO: use piped input/output streams instead?
     File file = new File(filename);
     FileInputStream fin = new FileInputStream(file);
@@ -32,5 +30,9 @@ public class LocalStorage {
     }
 
     fin.close();
+  }
+
+  public static synchronized void delete(String filename) throws IOException {
+    // TODO:
   }
 }

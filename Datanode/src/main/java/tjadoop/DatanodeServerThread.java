@@ -30,7 +30,6 @@ public class DatanodeServerThread implements Runnable {
 
   @Override
   public void run() {
-
     System.out.println("running datanode server thread");
     // implements the protocol defined in TODO
 
@@ -47,9 +46,8 @@ public class DatanodeServerThread implements Runnable {
           break;
 
         case DatanodeProtocol.READ:
-          sequenceNumber = dis.readInt();
           fileHash = dis.readInt();
-          readRequest(sequenceNumber, fileHash);
+          readRequest(fileHash);
           break;
 
         case DatanodeProtocol.ACK:
@@ -57,8 +55,7 @@ public class DatanodeServerThread implements Runnable {
           break;
 
         case DatanodeProtocol.DELETE:
-          sequenceNumber = dis.readInt();
-          fileHash = dis.readInt();
+
           break;
       }
     } catch (IOException e) {
@@ -149,14 +146,10 @@ public class DatanodeServerThread implements Runnable {
     // TODO: this whole block could use some refactoring
     while (totalBytesRead < dataLength) { // TODO: check for EOF too
       int bytesRead = dis.read(byteBlock);
-      System.out.println("Bytes read: " + bytesRead);
       totalBytesRead += bytesRead;
 
       long currByteEnd = totalBytesRead;
       long currByteStart = totalBytesRead - bytesRead;
-
-      System.out.println(currByteEnd);
-      System.out.println(currByteEnd);
 
       boolean hasWrittenToFile = false;
 
@@ -167,11 +160,11 @@ public class DatanodeServerThread implements Runnable {
 
         if (byteEnd > currByteEnd) {
           int len = byteBlock.length - blockStart;
-          LocalStorage.save(filename, byteBlock, blockStart, len);
+          LocalStorage.save(filename, byteBlock, 0, bytesRead);
 
         } else {
           int len = (int) (currByteEnd - currByteStart);
-          LocalStorage.save(filename, byteBlock, blockStart, len);
+          LocalStorage.save(filename, byteBlock, 0, bytesRead);
         }
       }
 
@@ -179,9 +172,9 @@ public class DatanodeServerThread implements Runnable {
         // if byteEnd is in this block, should always come after the previous if clause
         if (byteEnd >= currByteStart && byteStart <= currByteEnd) {
           int len = (int) (byteEnd - currByteStart);
-          LocalStorage.save(filename, byteBlock, 0, len);
+          LocalStorage.save(filename, byteBlock, 0, bytesRead);
         } else if (byteStart < currByteStart && byteEnd > currByteEnd) { // if this whole block is within bytestart and byteend
-          LocalStorage.save(filename, byteBlock, 0, byteBlock.length);
+          LocalStorage.save(filename, byteBlock, 0, bytesRead);
         }
       }
 
@@ -191,9 +184,9 @@ public class DatanodeServerThread implements Runnable {
       }
     }
 
-    if (isLastNode) {
+    if (isLastNode && sequenceNumber != 0) {
       // TODO: add boolean flag and set it to false if any errors occurs
-      // when saving all the stuff, and in that case send ERR instead of ACk
+      // when saving all the stuff, and in that case send ERR instead of ACK
       dos.writeByte(DatanodeProtocol.ACK);
 
     } else {
@@ -205,89 +198,56 @@ public class DatanodeServerThread implements Runnable {
       nextNodeDos.close();
       nextNodeSocket.close();
 
-      // Only the first datanode in the chain ACKs to namenode
-      if (sequenceNumber == 0) {
-        JSONObject json = new JSONObject();
-        json.put("cmd", "ack-upload");
-        json.put("id", fileHash);
-
-        datanode.sendToNamenode(json.toString());
-      }
-
       dos.writeByte(DatanodeProtocol.ACK);
+    }
+
+    // Only the first datanode in the chain ACKs to namenode
+    if (sequenceNumber == 0) {
+      JSONObject json = new JSONObject();
+      json.put("cmd", "ack-upload");
+      json.put("id", fileHash);
+
+      datanode.sendToNamenode(json.toString());
     }
 
     dis.close();
     dos.close();
+
+    System.out.println("create request finished");
   }
 
-  private void readRequest(int sequenceNumber, int fileHash) throws IOException {
-    int numNodes = dis.readInt();
+  private void readRequest(int fileHash) throws IOException {
+    System.out.println("read request");
+    long byteStart = dis.readLong();
+    long byteEnd = dis.readLong();
 
-    List<NodeEntry> nodeEntries = new LinkedList<NodeEntry>();
-
-    // the byte start and end for this datanode
-    long byteStart = 0;
-    long byteEnd = 0;
-
-    // read header
-    for (int i = 0; i < numNodes; i++) {
-      byte[] iaddr = new byte[16];
-      dis.read(iaddr);
-      long bs = dis.readLong();
-      long be = dis.readLong();
-
-      if (isOwnIP(iaddr)) {
-        byteStart = bs;
-        byteEnd = be;
-
-      } else {
-        nodeEntries.add(new NodeEntry(iaddr, bs, be));
-      }
-    }
-
-    // write the contents of this node's filepart as soon as we can
-    // to the parent node
+    // write the contents of this node's filepart
     String filename = getFilename(fileHash, byteStart, byteEnd);
     LocalStorage.load(filename, dos);
 
-    boolean isLastNode = nodeEntries.isEmpty();
-
-    Socket nextNodeSocket = null;
-    DataInputStream nextNodeDis = null;
-    DataOutputStream nextNodeDos = null;
-
-    if (!isLastNode) {
-      byte[] iaddr = nodeEntries.get(0).iaddr;
-      nextNodeSocket = new Socket(InetAddress.getByAddress(iaddr), Datanode.PORT);
-      nextNodeDis = new DataInputStream(new BufferedInputStream(nextNodeSocket.getInputStream()));
-      nextNodeDos = new DataOutputStream(new BufferedOutputStream(nextNodeSocket.getOutputStream()));
-
-      // write header
-      nextNodeDos.writeByte(DatanodeProtocol.READ);
-      nextNodeDos.writeInt(sequenceNumber + 1);
-      nextNodeDos.writeInt(fileHash);
-      nextNodeDos.writeShort(nodeEntries.size());
-      for (NodeEntry ne : nodeEntries) {
-        nextNodeDos.write(ne.iaddr, 0, ne.iaddr.length);
-        nextNodeDos.writeLong(ne.byteStart);
-        nextNodeDos.writeLong(ne.byteEnd);
-      }
-    }
-
-    // Just pass the other dataparts through the chain
-    // TODO: while there is data left, pass it through
-
+    System.out.println("finished read request");
   }
 
-  private void deleteRequest() throws IOException {
-    // TODO
+  private void deleteRequest(int fileHash) throws IOException {
+    try {
+      JSONObject jsonRequest = JSONUtil.parseJSONStream(dis);
+    } catch (JSONException e) {
+      // TODO: PANIC!!
+    }
+
+    // use this to ack namenode
+    try {
+      NamenodeProtocol.ACK_RM_FILE(fileHash);
+    } catch (JSONException e) {
+      // TODO: PANIC!!
+    }
   }
 
   private void acknowledge() throws IOException {
     // TODO, pass the ack to parent node
   }
 
+  // TODO: move this to LocalStorage instead
   private String getFilename(int fileHash, long byteStart, long byteEnd) {
     return "Filepart" + fileHash + "-" + byteStart + "-" + byteEnd;
   }
