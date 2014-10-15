@@ -9,8 +9,8 @@ public class LocalStorage {
     File file = new File(filename);
     boolean append = true;
     FileOutputStream fout = new FileOutputStream(file, append);
-    //fout.write(bytes, offset, len);
-    fout.write(bytes, offset, bytes.length);
+    fout.write(bytes, offset, len);
+    //fout.write(bytes, offset, bytes.length);
     fout.close();
   }
 
@@ -20,7 +20,7 @@ public class LocalStorage {
     // TODO: use piped input/output streams instead?
     File file = new File(filename);
     FileInputStream fin = new FileInputStream(file);
-    byte[] buffer = new byte[65536];
+    byte[] buffer = new byte[1024*1024*32];
     long totalBytesRead = 0;
     long fileSize = file.length();
 

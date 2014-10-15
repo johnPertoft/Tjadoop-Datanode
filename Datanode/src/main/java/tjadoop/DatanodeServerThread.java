@@ -99,6 +99,7 @@ public class DatanodeServerThread implements Runnable {
       long bs = dis.readLong();
       long be = dis.readLong();
 
+      // TODO: can have multiple bytestart and byteend for several file parts! FIX!
       if (isOwnIP(iaddr)) {
         byteStart = bs;
         byteEnd = be;
@@ -148,13 +149,20 @@ public class DatanodeServerThread implements Runnable {
     // TODO: this whole block could use some refactoring
     while (totalBytesRead < dataLength) { // TODO: check for EOF too
       int bytesRead = dis.read(byteBlock);
+      System.out.println("Bytes read: " + bytesRead);
       totalBytesRead += bytesRead;
 
       long currByteEnd = totalBytesRead;
-      long currByteStart = totalBytesRead - bytesRead + 1;
+      long currByteStart = totalBytesRead - bytesRead;
+
+      System.out.println(currByteEnd);
+      System.out.println(currByteEnd);
+
+      boolean hasWrittenToFile = false;
 
       // if byteStart starts in this block
       if (byteStart >= currByteStart && byteStart <= currByteEnd) {
+        hasWrittenToFile = true;
         int blockStart = (int) (byteStart - currByteStart);
 
         if (byteEnd > currByteEnd) {
@@ -167,15 +175,14 @@ public class DatanodeServerThread implements Runnable {
         }
       }
 
-      // if byteEnd is in this block, should always come after the previous if clause
-      if (byteEnd >= currByteStart && byteStart <= currByteEnd) {
-        int len = (int) (byteEnd - currByteStart);
-        LocalStorage.save(filename, byteBlock, 0, len);
-      }
-
-      // if this whole block is within bytestart and byteend
-      if (byteStart < currByteStart && byteEnd > currByteEnd) {
-        LocalStorage.save(filename, byteBlock, 0, byteBlock.length);
+      if (!hasWrittenToFile) {
+        // if byteEnd is in this block, should always come after the previous if clause
+        if (byteEnd >= currByteStart && byteStart <= currByteEnd) {
+          int len = (int) (byteEnd - currByteStart);
+          LocalStorage.save(filename, byteBlock, 0, len);
+        } else if (byteStart < currByteStart && byteEnd > currByteEnd) { // if this whole block is within bytestart and byteend
+          LocalStorage.save(filename, byteBlock, 0, byteBlock.length);
+        }
       }
 
       // always pass it on to the next datanode if there is one
@@ -290,6 +297,7 @@ public class DatanodeServerThread implements Runnable {
     System.out.println("isOwnIP()");
     try {
       String ip = InetAddress.getByAddress(iaddr).toString();
+      System.out.println(ip);
       if (ip.equals("/e:3133:302e:3232:392e:3134:352e:3934")) {
         System.out.println("IP matched!");
         return true;
