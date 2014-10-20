@@ -1,17 +1,15 @@
 package tjadoop;
 
 import org.json.JSONException;
-import org.json.JSONObject;
 
 import java.io.*;
 import java.net.InetAddress;
 import java.net.Socket;
 import java.net.UnknownHostException;
-import java.nio.charset.MalformedInputException;
-import java.util.HashMap;
+import java.util.Collections;
+import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Map;
 
 public class DatanodeServerThread implements Runnable {
 
@@ -50,13 +48,9 @@ public class DatanodeServerThread implements Runnable {
           readRequest(fileHash);
           break;
 
-        case DatanodeProtocol.ACK:
-
-          break;
-
-        case DatanodeProtocol.DELETE:
-
-          break;
+        default:
+          // unknown request type
+          // TODO: do what?
       }
     } catch (IOException e) {
       // TODO: signal to Datanode that this was a malformed request or whatever happened
@@ -67,27 +61,16 @@ public class DatanodeServerThread implements Runnable {
     }
   }
 
-  private class NodeEntry {
-    byte[] iaddr;
-    long byteStart;
-    long byteEnd;
-
-    NodeEntry(byte[] iaddr, long bs, long be) {
-      this.iaddr = iaddr;
-      this.byteStart = bs;
-      this.byteEnd = be;
-    }
-  }
-
   // TODO: this could need some refactoring maybe
   private void createRequest(int sequenceNumber, int fileHash) throws IOException, JSONException {
     int numNodes = dis.readInt();
 
     List<NodeEntry> nodeEntries = new LinkedList<NodeEntry>();
+    List<StartEndPair> startEndpairs = new LinkedList<StartEndPair>();
 
     // the byte start and end for this datanode
-    long byteStart = 0;
-    long byteEnd = 0;
+    //long byteStart = 0;
+    //long byteEnd = 0;
 
     // read header
     for (int i = 0; i < numNodes; i++) {
@@ -98,13 +81,17 @@ public class DatanodeServerThread implements Runnable {
 
       // TODO: can have multiple bytestart and byteend for several file parts! FIX!
       if (isOwnIP(iaddr)) {
-        byteStart = bs;
-        byteEnd = be;
+        //byteStart = bs; // remove these
+        //byteEnd = be;
+
+        startEndpairs.add(new StartEndPair(bs, be));
 
       } else {
         nodeEntries.add(new NodeEntry(iaddr, bs, be));
       }
     }
+
+    Collections.sort(startEndpairs);
 
     long dataLength = dis.readLong();
 
@@ -134,53 +121,78 @@ public class DatanodeServerThread implements Runnable {
       nextNodeDos.writeLong(dataLength);
     }
 
-    if (byteStart > byteEnd) {
-      throw new IllegalArgumentException("Malformed request");
-    }
-
     long totalBytesRead = 0;
-    byte[] byteBlock = new byte[1024*1024*32];
+    byte[] byteBlock = new byte[1024 * 1024 * 32];
 
-    String filename = getFilename(fileHash, byteStart, byteEnd);
+    // This assumes that each of these pairs are ordered and not overlapping
+    Iterator<StartEndPair> sepIt = startEndpairs.iterator();
+    StartEndPair sep = sepIt.next();
 
     // TODO: this whole block could use some refactoring
-    while (totalBytesRead < dataLength) { // TODO: check for EOF too
+    // TODO: check for EOF too?
+    while (totalBytesRead < dataLength) {
       int bytesRead = dis.read(byteBlock);
       totalBytesRead += bytesRead;
 
-      long currByteEnd = totalBytesRead;
-      long currByteStart = totalBytesRead - bytesRead;
+      // only one of the following cases should happen per block read
+      boolean doneInBlock = false;
 
-      boolean hasWrittenToFile = false;
+      long currentLastByte = totalBytesRead - 1;
+      long currentFirstByte = totalBytesRead - bytesRead;
 
-      // if byteStart starts in this block
-      if (byteStart >= currByteStart && byteStart <= currByteEnd) {
-        hasWrittenToFile = true;
-        int blockStart = (int) (byteStart - currByteStart);
 
-        if (byteEnd > currByteEnd) {
-          int len = byteBlock.length - blockStart;
-          LocalStorage.save(filename, byteBlock, 0, bytesRead);
+      // the whole nodeblock is within the currently read block
+      if (sep.start >= currentFirstByte && sep.end <= currentLastByte) {
+        String filename = LocalStorage.getFilename(fileHash, sep.start, sep.end);
 
-        } else {
-          int len = (int) (currByteEnd - currByteStart);
-          LocalStorage.save(filename, byteBlock, 0, bytesRead);
+        int startInBlock = (int) (sep.start - currentFirstByte);
+        int len = (int) (sep.end - sep.start);
+
+        LocalStorage.save(filename, byteBlock, startInBlock, len);
+        if (sepIt.hasNext()) {
+          sep = sepIt.next();
         }
+
+        doneInBlock = true;
       }
 
-      if (!hasWrittenToFile) {
-        // if byteEnd is in this block, should always come after the previous if clause
-        if (byteEnd >= currByteStart && byteStart <= currByteEnd) {
-          int len = (int) (byteEnd - currByteStart);
-          LocalStorage.save(filename, byteBlock, 0, bytesRead);
-        } else if (byteStart < currByteStart && byteEnd > currByteEnd) { // if this whole block is within bytestart and byteend
-          LocalStorage.save(filename, byteBlock, 0, bytesRead);
+      // only the start of the current nodeblock is within the currently read block
+      if (!doneInBlock && sep.start >= currentFirstByte && sep.start <= currentLastByte) {
+        String filename = LocalStorage.getFilename(fileHash, sep.start, sep.end);
+
+        int startInBlock = (int) (sep.start - currentFirstByte);
+        int len = (int) (sep.start - currentFirstByte);
+
+        LocalStorage.save(filename, byteBlock, startInBlock, len);
+
+        doneInBlock = true;
+      }
+
+      // neither the start or the end of the current nodeblock is within the currently read block
+      // save all of it
+      if (!doneInBlock && sep.start < currentFirstByte && sep.end > currentLastByte) {
+        String filename = LocalStorage.getFilename(fileHash, sep.start, sep.end);
+
+        LocalStorage.save(filename, byteBlock, 0, bytesRead);
+
+        doneInBlock = true;
+      }
+
+      // only the end of the current nodeblock is within the currently read block
+      if (!doneInBlock && sep.end >= currentFirstByte && sep.end <= currentLastByte) {
+        String filename = LocalStorage.getFilename(fileHash, sep.start, sep.end);
+
+        int len = (int) (sep.end - currentFirstByte + 1);
+
+        LocalStorage.save(filename, byteBlock, 0, len);
+        if (sepIt.hasNext()) {
+          sep = sepIt.next();
         }
       }
 
       // always pass it on to the next datanode if there is one
       if (!isLastNode) {
-        nextNodeDos.write(byteBlock);
+        nextNodeDos.write(byteBlock, 0, bytesRead);
       }
     }
 
@@ -193,21 +205,21 @@ public class DatanodeServerThread implements Runnable {
       // wait for ACK here
       // TODO: later add timeout if it takes too long
       // TODO: check if ack or error was returned
-      byte ackOrErr = nextNodeDis.readByte();
-      nextNodeDis.close();
-      nextNodeDos.close();
-      nextNodeSocket.close();
+      // TODO: refactor this whole crap
+
+      if (nextNodeDis != null) {
+        byte ackOrErr = nextNodeDis.readByte();
+        nextNodeDis.close();
+        nextNodeDos.close();
+        nextNodeSocket.close();
+      }
 
       dos.writeByte(DatanodeProtocol.ACK);
     }
 
     // Only the first datanode in the chain ACKs to namenode
     if (sequenceNumber == 0) {
-      JSONObject json = new JSONObject();
-      json.put("cmd", "ack-upload");
-      json.put("id", fileHash);
-
-      datanode.sendToNamenode(json.toString());
+      datanode.sendToNamenode(NamenodeProtocol.ACK_UPLOAD(fileHash).toString());
     }
 
     dis.close();
@@ -222,39 +234,21 @@ public class DatanodeServerThread implements Runnable {
     long byteEnd = dis.readLong();
 
     // write the contents of this node's filepart
-    String filename = getFilename(fileHash, byteStart, byteEnd);
+    String filename = LocalStorage.getFilename(fileHash, byteStart, byteEnd);
     LocalStorage.load(filename, dos);
 
     System.out.println("finished read request");
   }
 
   private void deleteRequest(int fileHash) throws IOException {
-    try {
-      JSONObject jsonRequest = JSONUtil.parseJSONStream(dis);
-    } catch (JSONException e) {
-      // TODO: PANIC!!
-    }
-
-    // use this to ack namenode
-    try {
-      NamenodeProtocol.ACK_RM_FILE(fileHash);
-    } catch (JSONException e) {
-      // TODO: PANIC!!
-    }
+    // this request
   }
 
   private void acknowledge() throws IOException {
     // TODO, pass the ack to parent node
   }
 
-  // TODO: move this to LocalStorage instead
-  private String getFilename(int fileHash, long byteStart, long byteEnd) {
-    return "Filepart" + fileHash + "-" + byteStart + "-" + byteEnd;
-  }
-
   private boolean isOwnIP(byte[] iaddr) {
-    // temp
-    System.out.println("isOwnIP()");
     try {
       String ip = InetAddress.getByAddress(iaddr).toString();
       System.out.println(ip);
@@ -278,5 +272,34 @@ public class DatanodeServerThread implements Runnable {
     }
 
     return true;
+  }
+
+  private class NodeEntry {
+    byte[] iaddr;
+    long byteStart;
+    long byteEnd;
+
+    NodeEntry(byte[] iaddr, long bs, long be) {
+      this.iaddr = iaddr;
+      this.byteStart = bs;
+      this.byteEnd = be;
+    }
+  }
+
+  private class StartEndPair implements Comparable<StartEndPair> {
+    long start;
+    long end;
+
+    StartEndPair(long start, long end) {
+      this.start = start;
+      this.end = end;
+    }
+
+    @Override
+    public int compareTo(StartEndPair startEndPair) {
+      if (this.start < startEndPair.start) return -1;
+      if (this.start > startEndPair.start) return 1;
+      return 0;
+    }
   }
 }

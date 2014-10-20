@@ -19,6 +19,8 @@ public class Datanode {
 
   private ServerSocket datanodeServerSocket;
 
+  private NamenodeThread namenodeThread;
+
   public Datanode(DataInputStream dis, DataOutputStream dos, ServerSocket datanodeServerSocket, byte[] iaddr) {
     this.datanodeServerSocket = datanodeServerSocket;
     this.namenodeInput = dis;
@@ -35,8 +37,8 @@ public class Datanode {
   public void run() {
     try {
       setup();
-      NamenodeThread nnt = new NamenodeThread(namenodeInput, namenodeOutput);
-      new Thread(nnt).start();
+      namenodeThread = new NamenodeThread(this, namenodeInput, namenodeOutput);
+      new Thread(namenodeThread).start();
 
     } catch (IOException e) {
       System.err.println("Failed during setup with name node");
@@ -61,31 +63,36 @@ public class Datanode {
     }
   }
 
-  private void setup() throws IOException, JSONException {
-    JSONObject json = new JSONObject();
+  public synchronized void handleNamenodeMessage(JSONObject json) {
+    // static variables in other classes are only known at runtime apparantly
+    // so cant use switch which needs them at compile time
+
     try {
-      json = NamenodeProtocol.INIT("130.229.145.94");
+
+      if (json.get("cmd").equals(NamenodeProtocol.CMD_RM_FILE)) {
+        // TODO: we probably need some lock for the datanodeserverthreads that might be reading that file?
+        LocalStorage.delete(json.getInt("fileHash"));
+      }
+
+      // TODO: add the heart beat thing here as well?
+
+    } catch (JSONException e) {
+      // TODO: panic
+    } catch (IOException e) {
+      // TODO
+    }
+  }
+
+  private void setup() throws IOException, JSONException {
+    try {
+      JSONObject json = NamenodeProtocol.INIT("130.229.145.94");
       namenodeOutput.writeBytes(json.toString());
 
     } catch (JSONException e) {
+      System.err.println("Failed to send setup message to namenode");
+      System.exit(1);
     }
 
-    /*
-    StringBuilder sb = new StringBuilder();
-    // read until num left brackets == right brackets
-    int lb = 0;
-    int rb = 0;
-    do {
-      byte c = namenodeInput.readByte();
-      sb.append((char) c);
-
-      if (c == '{') lb++;
-      if (c == '}') rb++;
-
-    } while (lb != rb);
-
-    JSONObject jsonResp = new JSONObject(sb.toString());
-    */
     JSONObject jsonResp = JSONUtil.parseJSONStream(namenodeInput);
 
     if (jsonResp.getBoolean("success")) {

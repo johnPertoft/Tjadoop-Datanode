@@ -1,6 +1,6 @@
 package tjadoop;
 
-public class DatanodeProtocol {
+public final class DatanodeProtocol {
 
   public static final byte CREATE = 0;
   public static final byte READ = 1;
