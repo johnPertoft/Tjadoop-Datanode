@@ -71,7 +71,7 @@ public class Datanode {
 
       if (json.get("cmd").equals(NamenodeProtocol.CMD_RM_FILE)) {
         // TODO: we probably need some lock for the datanodeserverthreads that might be reading that file?
-        LocalStorage.delete(json.getInt("fileHash"));
+        LocalStorage.delete(json.getInt("id"));
       }
 
       // TODO: add the heart beat thing here as well?
