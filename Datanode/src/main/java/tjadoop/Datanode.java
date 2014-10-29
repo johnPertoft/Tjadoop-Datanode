@@ -11,7 +11,7 @@ import java.net.ServerSocket;
 
 public class Datanode {
 
-  public static final int PORT = 49377;
+  public static final int PORT = 49380;
   public final byte[] IADDRESS;
 
   private DataInputStream namenodeInput;
@@ -27,6 +27,12 @@ public class Datanode {
     this.namenodeOutput = dos;
 
     IADDRESS = iaddr;
+
+    try {
+      LocalStorage.deleteEverything();
+    } catch (IOException e) {
+      e.printStackTrace();
+    }
   }
 
   // TODO: move this to namenodeThread class?
@@ -72,6 +78,10 @@ public class Datanode {
       if (json.get("cmd").equals(NamenodeProtocol.CMD_RM_FILE)) {
         // TODO: we probably need some lock for the datanodeserverthreads that might be reading that file?
         LocalStorage.delete(json.getInt("id"));
+
+      } else {
+        System.out.println("Unknown command from Name node");
+        System.out.println(json);
       }
 
       // TODO: add the heart beat thing here as well?

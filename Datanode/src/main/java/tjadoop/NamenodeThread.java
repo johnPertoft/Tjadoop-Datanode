@@ -31,6 +31,7 @@ public class NamenodeThread implements Runnable {
       try {
         JSONObject json = JSONUtil.parseJSONStream(namenodeInput);
         System.out.println("new message from namenode received");
+        System.out.println(json);
         datanode.handleNamenodeMessage(json);
         //addToCommandQueue(json);
 

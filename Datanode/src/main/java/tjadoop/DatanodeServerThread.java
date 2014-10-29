@@ -63,7 +63,6 @@ public class DatanodeServerThread implements Runnable {
 
   // TODO: this could need some refactoring maybe
   private void createRequest(int sequenceNumber, int fileHash) throws IOException, JSONException {
-    System.out.println("CREATE REQUEST");
     int numNodes = dis.readInt();
 
     List<NodeEntry> nodeEntries = new LinkedList<NodeEntry>();
@@ -120,7 +119,6 @@ public class DatanodeServerThread implements Runnable {
     // This assumes that each of these pairs are ordered and not overlapping
     Iterator<StartEndPair> sepIt = startEndpairs.iterator();
     StartEndPair sep = sepIt.next();
-    System.out.println(sep);
 
     // TODO: this whole block could use some refactoring
     // TODO: check for EOF too?
@@ -140,7 +138,7 @@ public class DatanodeServerThread implements Runnable {
         String filename = LocalStorage.getFilename(fileHash, sep.start, sep.end);
 
         int startInBlock = (int) (sep.start - currentFirstByte);
-        int len = (int) (sep.end - sep.start);
+        int len = (int) (sep.end - sep.start) + 1;
 
         System.out.println("FIRST SAVE CASE");
         LocalStorage.save(filename, byteBlock, startInBlock, len);
@@ -158,7 +156,7 @@ public class DatanodeServerThread implements Runnable {
         String filename = LocalStorage.getFilename(fileHash, sep.start, sep.end);
 
         int startInBlock = (int) (sep.start - currentFirstByte);
-        int len = (int) (sep.start - currentFirstByte);
+        int len = (int) (currentLastByte - sep.start + 1);
 
         System.out.println("SECOND SAVE CASE");
         LocalStorage.save(filename, byteBlock, startInBlock, len);
@@ -177,6 +175,7 @@ public class DatanodeServerThread implements Runnable {
         doneInBlock = true;
       }
 
+      // TODO: why is this never used
       // If only the end of the current nodeblock is within the currently read block
       if (!doneInBlock && sep.end >= currentFirstByte && sep.end <= currentLastByte) {
         String filename = LocalStorage.getFilename(fileHash, sep.start, sep.end);
@@ -189,6 +188,13 @@ public class DatanodeServerThread implements Runnable {
         // move to next startEndPair
         if (sepIt.hasNext()) {
           sep = sepIt.next();
+
+          // TODO: in this case we will have to see if the rest of this block is needed for this next sep
+          // temp, this just works on assumption that the next byteend is not in this block
+          filename = LocalStorage.getFilename(fileHash, sep.start, sep.end);
+          System.out.println("FIFTH CASE");
+          LocalStorage.save(filename, byteBlock, len, bytesRead - len);
+
         }
       }
 
@@ -227,11 +233,10 @@ public class DatanodeServerThread implements Runnable {
     dis.close();
     dos.close();
 
-    System.out.println("create request finished");
+    System.out.println("finished create request");
   }
 
   private void readRequest(int fileHash) throws IOException {
-    System.out.println("read request");
     long byteStart = dis.readLong();
     long byteEnd = dis.readLong();
 
