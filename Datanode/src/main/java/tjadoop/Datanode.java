@@ -11,7 +11,7 @@ import java.net.ServerSocket;
 
 public class Datanode {
 
-  public static final int PORT = 15568;
+  public static final int PORT = 49377;
   public final byte[] IADDRESS;
 
   private DataInputStream namenodeInput;
@@ -58,13 +58,13 @@ public class Datanode {
         new Thread(dst).start();
 
       } catch (IOException e) {
-        // running = false;
+        e.printStackTrace();
       }
     }
   }
 
   public synchronized void handleNamenodeMessage(JSONObject json) {
-    // static variables in other classes are only known at runtime apparantly
+    // static variables in other classes are only known at runtime apparently
     // so cant use switch which needs them at compile time
 
     try {
@@ -85,7 +85,7 @@ public class Datanode {
 
   private void setup() throws IOException, JSONException {
     try {
-      JSONObject json = NamenodeProtocol.INIT("130.229.145.94");
+      JSONObject json = NamenodeProtocol.INIT("130.229.175.88");
       namenodeOutput.writeBytes(json.toString());
 
     } catch (JSONException e) {

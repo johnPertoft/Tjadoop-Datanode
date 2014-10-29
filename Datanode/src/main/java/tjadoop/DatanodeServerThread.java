@@ -63,14 +63,11 @@ public class DatanodeServerThread implements Runnable {
 
   // TODO: this could need some refactoring maybe
   private void createRequest(int sequenceNumber, int fileHash) throws IOException, JSONException {
+    System.out.println("CREATE REQUEST");
     int numNodes = dis.readInt();
 
     List<NodeEntry> nodeEntries = new LinkedList<NodeEntry>();
     List<StartEndPair> startEndpairs = new LinkedList<StartEndPair>();
-
-    // the byte start and end for this datanode
-    //long byteStart = 0;
-    //long byteEnd = 0;
 
     // read header
     for (int i = 0; i < numNodes; i++) {
@@ -79,19 +76,15 @@ public class DatanodeServerThread implements Runnable {
       long bs = dis.readLong();
       long be = dis.readLong();
 
-      // TODO: can have multiple bytestart and byteend for several file parts! FIX!
-      if (isOwnIP(iaddr)) {
-        //byteStart = bs; // remove these
-        //byteEnd = be;
-
+      if (isOwnIP(iaddr))
         startEndpairs.add(new StartEndPair(bs, be));
-
-      } else {
+      else
         nodeEntries.add(new NodeEntry(iaddr, bs, be));
-      }
     }
 
+    // sorts on increasing byteStarts
     Collections.sort(startEndpairs);
+    System.out.println(startEndpairs);
 
     long dataLength = dis.readLong();
 
@@ -127,6 +120,7 @@ public class DatanodeServerThread implements Runnable {
     // This assumes that each of these pairs are ordered and not overlapping
     Iterator<StartEndPair> sepIt = startEndpairs.iterator();
     StartEndPair sep = sepIt.next();
+    System.out.println(sep);
 
     // TODO: this whole block could use some refactoring
     // TODO: check for EOF too?
@@ -137,18 +131,21 @@ public class DatanodeServerThread implements Runnable {
       // only one of the following cases should happen per block read
       boolean doneInBlock = false;
 
+      // byte numbers in the total stream of bytes sent
       long currentLastByte = totalBytesRead - 1;
       long currentFirstByte = totalBytesRead - bytesRead;
 
-
-      // the whole nodeblock is within the currently read block
+      // If the whole nodeblock is within the currently read block
       if (sep.start >= currentFirstByte && sep.end <= currentLastByte) {
         String filename = LocalStorage.getFilename(fileHash, sep.start, sep.end);
 
         int startInBlock = (int) (sep.start - currentFirstByte);
         int len = (int) (sep.end - sep.start);
 
+        System.out.println("FIRST SAVE CASE");
         LocalStorage.save(filename, byteBlock, startInBlock, len);
+
+        // move to next StartEndPair
         if (sepIt.hasNext()) {
           sep = sepIt.next();
         }
@@ -156,41 +153,46 @@ public class DatanodeServerThread implements Runnable {
         doneInBlock = true;
       }
 
-      // only the start of the current nodeblock is within the currently read block
+      // If only the start of the current nodeblock is within the currently read block
       if (!doneInBlock && sep.start >= currentFirstByte && sep.start <= currentLastByte) {
         String filename = LocalStorage.getFilename(fileHash, sep.start, sep.end);
 
         int startInBlock = (int) (sep.start - currentFirstByte);
         int len = (int) (sep.start - currentFirstByte);
 
+        System.out.println("SECOND SAVE CASE");
         LocalStorage.save(filename, byteBlock, startInBlock, len);
 
         doneInBlock = true;
       }
 
-      // neither the start or the end of the current nodeblock is within the currently read block
+      // If neither the start or the end of the current nodeblock is within the currently read block
       // save all of it
       if (!doneInBlock && sep.start < currentFirstByte && sep.end > currentLastByte) {
         String filename = LocalStorage.getFilename(fileHash, sep.start, sep.end);
 
+        System.out.println("THIRD SAVE CASE");
         LocalStorage.save(filename, byteBlock, 0, bytesRead);
 
         doneInBlock = true;
       }
 
-      // only the end of the current nodeblock is within the currently read block
+      // If only the end of the current nodeblock is within the currently read block
       if (!doneInBlock && sep.end >= currentFirstByte && sep.end <= currentLastByte) {
         String filename = LocalStorage.getFilename(fileHash, sep.start, sep.end);
 
         int len = (int) (sep.end - currentFirstByte + 1);
 
+        System.out.println("FOURTH SAVE CASE");
         LocalStorage.save(filename, byteBlock, 0, len);
+
+        // move to next startEndPair
         if (sepIt.hasNext()) {
           sep = sepIt.next();
         }
       }
 
-      // always pass it on to the next datanode if there is one
+      // always pass the data on to the next datanode if there is one
       if (!isLastNode) {
         nextNodeDos.write(byteBlock, 0, bytesRead);
       }
@@ -240,19 +242,11 @@ public class DatanodeServerThread implements Runnable {
     System.out.println("finished read request");
   }
 
-  private void deleteRequest(int fileHash) throws IOException {
-    // this request
-  }
-
-  private void acknowledge() throws IOException {
-    // TODO, pass the ack to parent node
-  }
-
   private boolean isOwnIP(byte[] iaddr) {
     try {
       String ip = InetAddress.getByAddress(iaddr).toString();
-      System.out.println(ip);
-      if (ip.equals("/e:3133:302e:3232:392e:3134:352e:3934")) {
+      //System.out.println(ip);
+      if (ip.equals("/e:3133:302e:3232:392e:3137:352e:3838")) {
         System.out.println("IP matched!");
         return true;
       }
@@ -300,6 +294,11 @@ public class DatanodeServerThread implements Runnable {
       if (this.start < startEndPair.start) return -1;
       if (this.start > startEndPair.start) return 1;
       return 0;
+    }
+
+    @Override
+    public String toString() {
+      return "(" + start + ", " + end + ")";
     }
   }
 }

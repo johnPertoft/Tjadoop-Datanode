@@ -7,11 +7,14 @@ public class LocalStorage {
   public static final String RELATIVE_FILEPARTS_PATH = "fileparts/";
 
   public static synchronized void save(String filename, byte[] bytes, int offset, int len) throws IOException {
+    System.out.println("saving stuff, offset: " + offset + ", len: " + len);
+
+    if (len <= 0) return;
+
     File file = new File(RELATIVE_FILEPARTS_PATH + filename);
     boolean append = true;
     FileOutputStream fout = new FileOutputStream(file, append);
     fout.write(bytes, offset, len);
-    //fout.write(bytes, offset, bytes.length);
     fout.close();
   }
 
