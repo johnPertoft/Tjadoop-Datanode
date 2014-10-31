@@ -140,7 +140,7 @@ public class DatanodeServerThread implements Runnable {
         int startInBlock = (int) (sep.start - currentFirstByte);
         int len = (int) (sep.end - sep.start) + 1;
 
-        System.out.println("FIRST SAVE CASE");
+        //System.out.println("FIRST SAVE CASE");
         LocalStorage.save(filename, byteBlock, startInBlock, len);
 
         // move to next StartEndPair
@@ -158,7 +158,7 @@ public class DatanodeServerThread implements Runnable {
         int startInBlock = (int) (sep.start - currentFirstByte);
         int len = (int) (currentLastByte - sep.start + 1);
 
-        System.out.println("SECOND SAVE CASE");
+        //System.out.println("SECOND SAVE CASE");
         LocalStorage.save(filename, byteBlock, startInBlock, len);
 
         doneInBlock = true;
@@ -169,20 +169,19 @@ public class DatanodeServerThread implements Runnable {
       if (!doneInBlock && sep.start < currentFirstByte && sep.end > currentLastByte) {
         String filename = LocalStorage.getFilename(fileHash, sep.start, sep.end);
 
-        System.out.println("THIRD SAVE CASE");
+        //System.out.println("THIRD SAVE CASE");
         LocalStorage.save(filename, byteBlock, 0, bytesRead);
 
         doneInBlock = true;
       }
 
-      // TODO: why is this never used
       // If only the end of the current nodeblock is within the currently read block
       if (!doneInBlock && sep.end >= currentFirstByte && sep.end <= currentLastByte) {
         String filename = LocalStorage.getFilename(fileHash, sep.start, sep.end);
 
         int len = (int) (sep.end - currentFirstByte + 1);
 
-        System.out.println("FOURTH SAVE CASE");
+        //System.out.println("FOURTH SAVE CASE");
         LocalStorage.save(filename, byteBlock, 0, len);
 
         // move to next startEndPair
@@ -190,9 +189,12 @@ public class DatanodeServerThread implements Runnable {
           sep = sepIt.next();
 
           // TODO: in this case we will have to see if the rest of this block is needed for this next sep
-          // temp, this just works on assumption that the next byteend is not in this block
+
+
+          // temp, this just works on assumption that the rest of this block belongs to the next sep
+          // which is usually only the case if there is only one datanode
           filename = LocalStorage.getFilename(fileHash, sep.start, sep.end);
-          System.out.println("FIFTH CASE");
+          //System.out.println("FIFTH CASE");
           LocalStorage.save(filename, byteBlock, len, bytesRead - len);
 
         }
@@ -243,6 +245,9 @@ public class DatanodeServerThread implements Runnable {
     // write the contents of this node's filepart
     String filename = LocalStorage.getFilename(fileHash, byteStart, byteEnd);
     LocalStorage.load(filename, dos);
+
+    dis.close();
+    dos.close();
 
     System.out.println("finished read request");
   }

@@ -11,7 +11,7 @@ import java.net.ServerSocket;
 
 public class Datanode {
 
-  public static final int PORT = 49380;
+  public static final int PORT = 49384;
   public final byte[] IADDRESS;
 
   private DataInputStream namenodeInput;
